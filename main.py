@@ -8,7 +8,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
-    "postgresql://postgres:masterpassword@database-2.cpcmy2g42nlx.ap-southeast-2.rds.amazonaws.com:5432/postgres",
+    "postgresql+psycopg2://postgres:UyJetqLPtWYJ6XXM7dqd@database-2.cpcmy2g42nlx.ap-southeast-2.rds.amazonaws.com:5432/postgres",
 )
 
 engine = create_engine(DATABASE_URL)
