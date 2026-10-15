@@ -1,12 +1,36 @@
+import os
 from fastapi import FastAPI, Form, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 from datetime import datetime
 from markupsafe import escape
+from sqlalchemy import create_engine, Column, Integer, String, DateTime
+from sqlalchemy.orm import declarative_base, sessionmaker
+
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL",
+    "postgresql://postgres:masterpassword@database-2.cpcmy2g42nlx.ap-southeast-2.rds.amazonaws.com:5432/postgres",
+)
+
+engine = create_engine(DATABASE_URL)
+Session = sessionmaker(bind=engine)
+Base = declarative_base()
+
+
+class Note(Base):
+    __tablename__ = "notes"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(String, nullable=False)
+    content = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.now)
+
+
+Base.metadata.create_all(engine)
 
 app = FastAPI()
 
-notes: list[dict] = []
-next_id = 1
+
+def note_dict(n: Note) -> dict:
+    return {"id": n.id, "title": n.title, "content": n.content, "created_at": n.created_at.isoformat()}
 
 
 def render_note(n: dict) -> str:
@@ -29,6 +53,8 @@ def render_note(n: dict) -> str:
 
 
 def render_list() -> str:
+    with Session() as s:
+        notes = [note_dict(n) for n in s.query(Note).order_by(Note.id).all()]
     if not notes:
         return '<div class="empty">No notes yet.</div>'
     return "".join(render_note(n) for n in notes)
@@ -49,7 +75,6 @@ def render_form(note: dict | None = None) -> str:
 </form>"""
 
 
-
 @app.get("/")
 def serve_frontend():
     return FileResponse("static/index.html")
@@ -67,39 +92,39 @@ def get_form():
 
 @app.get("/notes/{note_id}/edit", response_class=HTMLResponse)
 def edit_form(note_id: int):
-    for note in notes:
-        if note["id"] == note_id:
-            return render_form(note)
-    raise HTTPException(status_code=404, detail="Note not found")
+    with Session() as s:
+        note = s.query(Note).filter(Note.id == note_id).first()
+        if not note:
+            raise HTTPException(status_code=404, detail="Note not found")
+        return render_form(note_dict(note))
 
 
 @app.post("/notes", response_class=HTMLResponse)
 def create_note(title: str = Form(), content: str = Form()):
-    global next_id
-    notes.append({
-        "id": next_id,
-        "title": title,
-        "content": content,
-        "created_at": datetime.now().isoformat(),
-    })
-    next_id += 1
+    with Session() as s:
+        s.add(Note(title=title, content=content))
+        s.commit()
     return render_list()
 
 
 @app.put("/notes/{note_id}", response_class=HTMLResponse)
 def update_note(note_id: int, title: str = Form(), content: str = Form()):
-    for note in notes:
-        if note["id"] == note_id:
-            note["title"] = title
-            note["content"] = content
-            return render_list()
-    raise HTTPException(status_code=404, detail="Note not found")
+    with Session() as s:
+        note = s.query(Note).filter(Note.id == note_id).first()
+        if not note:
+            raise HTTPException(status_code=404, detail="Note not found")
+        note.title = title
+        note.content = content
+        s.commit()
+    return render_list()
 
 
 @app.delete("/notes/{note_id}", response_class=HTMLResponse)
 def delete_note(note_id: int):
-    for i, note in enumerate(notes):
-        if note["id"] == note_id:
-            notes.pop(i)
-            return ""
-    raise HTTPException(status_code=404, detail="Note not found")
+    with Session() as s:
+        note = s.query(Note).filter(Note.id == note_id).first()
+        if not note:
+            raise HTTPException(status_code=404, detail="Note not found")
+        s.delete(note)
+        s.commit()
+    return ""
